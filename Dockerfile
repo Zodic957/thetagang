@@ -1,20 +1,46 @@
-FROM eclipse-temurin:17
+FROM eclipse-temurin:17.0.8_7-jdk-jammy
 
-RUN apt update \
-  && DEBIAN_FRONTEND=noninteractive apt install -qy --no-install-recommends \
-  python3-pip \
-  python3-setuptools \
-  xvfb \
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -qy --no-install-recommends \
+  ca-certificates \
+  fonts-liberation \
+  libasound2 \
+  libatk-bridge2.0-0 \
+  libatk1.0-0 \
+  libatspi2.0-0 \
+  libc6 \
+  libcairo2 \
+  libcups2 \
+  libcurl4 \
+  libdbus-1-3 \
+  libdrm2 \
+  libexpat1 \
+  libgbm1 \
+  libglib2.0-0 \
+  libgtk-3-0 \
+  libnspr4 \
+  libnss3 \
+  libpango-1.0-0 \
+  libu2f-udev \
+  libvulkan1 \
+  libx11-6 \
+  libxcb1 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxext6 \
+  libxfixes3 \
   libxi6 \
-  libxtst6 \
+  libxkbcommon0 \
+  libxrandr2 \
   libxrender1 \
-  unzip \
-  curl \
+  libxtst6 \
   openjfx \
-  && python3 -m pip install --upgrade pip \
-  && if test "$(dpkg --print-architecture)" = "armhf" ; then python3 -m pip config set global.extra-index-url https://www.piwheels.org/simple ; fi \
-  && echo 'f65a629f85c8603a51a4046e4b4f74adbec981a9aa4f7d45a281807fff78ea8f  ibc.zip' | tee ibc.zip.sha256 \
-  && curl -qL https://github.com/IbcAlpha/IBC/releases/download/3.12.0/IBCLinux-3.12.0.zip -o ibc.zip \
+  unzip \
+  wget \
+  xdg-utils \
+  xvfb \
+  && echo '0bd03c713f04c0a64367abbd3d5a40d228fcc2fb969c927bd7cdbd85baddac4b  ibc.zip' | tee ibc.zip.sha256 \
+  && wget -q https://github.com/IbcAlpha/IBC/releases/download/3.23.0/IBCLinux-3.23.0.zip -O ibc.zip \
   && sha256sum -c ibc.zip.sha256 \
   && unzip ibc.zip -d /opt/ibc \
   && chmod o+x /opt/ibc/*.sh /opt/ibc/*/*.sh \
@@ -22,21 +48,32 @@ RUN apt update \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
+ENV VIRTUAL_ENV="/opt/venv"
+ENV PATH="/opt/venv/bin:/root/.local/bin:${PATH}"
+
 WORKDIR /src
 
 ADD ./tws/Jts /root/Jts
 ADD ./dist /src/dist
 ADD entrypoint.bash /src/entrypoint.bash
+ADD docker/patch-ibc-java-logging.sh /src/patch-ibc-java-logging.sh
+ADD ./data/jxbrowser-linux64-arm-7.29.jar /root/Jts/1050/jars/
+ADD ./thetagang/ibgateway-log4j2.xml /opt/thetagang/ibgateway-log4j2.xml
 
-RUN python3 -m pip install dist/thetagang-*.whl \
+RUN wget -qO- https://astral.sh/uv/install.sh | sh \
+  && uv python install 3.15 \
+  && uv venv /opt/venv --python 3.15 \
+  && if test "$(dpkg --print-architecture)" = "armhf" ; then export PIP_EXTRA_INDEX_URL=https://www.piwheels.org/simple ; fi \
+  && uv pip install --python /opt/venv/bin/python dist/thetagang-*.whl \
   && rm -rf /root/.cache \
   && rm -rf dist \
   && echo '--module-path /usr/share/openjfx/lib' | tee -a /root/Jts/*/tws.vmoptions \
-  && echo '--add-modules=javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.media,javafx.swing,javafx.web' | tee -a /root/Jts/*/tws.vmoptions \
+  && echo '--add-modules java.base,java.naming,java.management,javafx.base,javafx.controls,javafx.fxml,javafx.graphics,javafx.media,javafx.swing,javafx.web' | tee -a /root/Jts/*/tws.vmoptions \
   && echo '--add-opens java.desktop/javax.swing=ALL-UNNAMED' | tee -a /root/Jts/*/tws.vmoptions \
   && echo '--add-opens java.desktop/java.awt=ALL-UNNAMED' | tee -a /root/Jts/*/tws.vmoptions \
   && echo '--add-opens java.base/java.util=ALL-UNNAMED' | tee -a /root/Jts/*/tws.vmoptions \
   && echo '--add-opens javafx.graphics/com.sun.javafx.application=ALL-UNNAMED' | tee -a /root/Jts/*/tws.vmoptions \
+  && sh /src/patch-ibc-java-logging.sh \
   && echo '[Logon]' | tee -a /root/Jts/jts.ini \
   && echo 'UseSSL=true' | tee -a /root/Jts/jts.ini
 
